@@ -1,0 +1,19 @@
+{
+  "name": "clinic-webapp-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.1",
+    "express": "^4.18.2",
+    "openai": "^5.8.2",
+    "pg": "^8.11.3",
+    "serverless-http": "^3.2.0"
+  }
+}
