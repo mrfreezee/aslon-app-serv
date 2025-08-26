@@ -47,6 +47,16 @@ function parseTimeRange(rangeStr) {
     return [minsFromHMS(l), minsFromHMS(r)]
 }
 
+app.get('/api/debug/db', async (req, res) => {
+  try {
+    const ping = await pool.query('select 1 as ok')
+    const exists = await pool.query(`select to_regclass('public.services') as services`)
+    res.json({ ok: true, ping: ping.rows[0], services_table: exists.rows[0].services })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message) })
+  }
+})
+
 app.get('/api/health', (_, res) => res.send('ok'))
 
 app.get('/api/user/:user_id', async (req, res) => {
