@@ -143,19 +143,45 @@ app.get('/api/doctors', async (req, res) => {
 
 app.get('/api/specialties', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM specialties ORDER BY id ASC')
+        const hasId = await pool.query(`
+      select 1
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'specialties' and column_name = 'id'
+      limit 1
+    `)
+
+        const q = hasId.rowCount
+            ? 'select id, name from public.specialties order by id'
+            : 'select name from public.specialties'
+
+        const result = await pool.query(q)
         res.json(result.rows)
     } catch (e) {
-        res.status(500).json({ error: 'Ошибка при получении специальностей' })
+        console.error('Ошибка /specialties:', e)
+        res.status(500).json({ error: 'Ошибка при получении специальностей', details: String(e.message) })
     }
 })
 
 app.get('/api/doctor-services', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM doctor_services ORDER BY doctor_id ASC, service_id ASC')
+        const cols = await pool.query(`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'doctor_services'
+    `)
+
+        const colNames = cols.rows.map(r => r.column_name)
+        let q = 'select * from public.doctor_services'
+
+        if (colNames.includes('doctor_id') && colNames.includes('service_id')) {
+            q = 'select doctor_id, service_id from public.doctor_services order by doctor_id, service_id'
+        }
+
+        const result = await pool.query(q)
         res.json(result.rows)
     } catch (e) {
-        res.status(500).json({ error: 'Ошибка при получении связей врач-услуга' })
+        console.error('Ошибка /doctor-services:', e)
+        res.status(500).json({ error: 'Ошибка при получении связей врач-услуга', details: String(e.message) })
     }
 })
 
