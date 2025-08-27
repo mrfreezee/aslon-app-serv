@@ -48,27 +48,27 @@ function parseTimeRange(rangeStr) {
 }
 
 app.get('/api/debug/db', async (req, res) => {
-  try {
-    const ping = await pool.query('select 1 as ok')
-    const exists = await pool.query(`select to_regclass('public.services') as services`)
-    res.json({ ok: true, ping: ping.rows[0], services_table: exists.rows[0].services })
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e.message) })
-  }
+    try {
+        const ping = await pool.query('select 1 as ok')
+        const exists = await pool.query(`select to_regclass('public.services') as services`)
+        res.json({ ok: true, ping: ping.rows[0], services_table: exists.rows[0].services })
+    } catch (e) {
+        res.status(500).json({ ok: false, error: String(e.message) })
+    }
 })
 
 app.get('/api/debug/columns/services', async (req, res) => {
-  try {
-    const cols = await pool.query(`
+    try {
+        const cols = await pool.query(`
       select column_name, data_type
       from information_schema.columns
       where table_schema='public' and table_name='services'
       order by ordinal_position
     `)
-    res.json(cols.rows)
-  } catch (e) {
-    res.status(500).json({ error: String(e.message) })
-  }
+        res.json(cols.rows)
+    } catch (e) {
+        res.status(500).json({ error: String(e.message) })
+    }
 })
 
 app.get('/api/health', (_, res) => res.send('ok'))
@@ -122,10 +122,22 @@ app.put('/api/user/:user_id', async (req, res) => {
 
 app.get('/api/doctors', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM doctors ORDER BY id ASC')
+        const hasId = await pool.query(`
+      select 1
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'doctors' and column_name = 'id'
+      limit 1
+    `)
+
+        const q = hasId.rowCount
+            ? 'select id, name, specialty_id, tg_file_id, ident_staff_id, tg_file_id2 from public.doctors order by id'
+            : 'select name, specialty_id, tg_file_id, ident_staff_id, tg_file_id2 from public.doctors'
+
+        const result = await pool.query(q)
         res.json(result.rows)
     } catch (e) {
-        res.status(500).json({ error: 'Ошибка при получении врачей' })
+        console.error('Ошибка /doctors:', e)
+        res.status(500).json({ error: 'Ошибка при получении врачей', details: String(e.message) })
     }
 })
 
@@ -148,23 +160,22 @@ app.get('/api/doctor-services', async (req, res) => {
 })
 
 app.get('/api/services', async (req, res) => {
-  try {
-    // если есть колонка id — сортируем по ней, иначе без сортировки
-    const hasId = await pool.query(`
+    try {
+        const hasId = await pool.query(`
       select 1
       from information_schema.columns
       where table_schema = 'public' and table_name = 'services' and column_name = 'id'
       limit 1
     `)
-    const q = hasId.rowCount
-      ? 'select id, name, price, duration, clinic_id, category, section, specialty_id from public.services order by id'
-      : 'select id, name, price, duration, clinic_id, category, section, specialty_id from public.services'
-    const result = await pool.query(q)
-    res.json(result.rows)
-  } catch (e) {
-    console.error('Ошибка /services:', e)
-    res.status(500).json({ error: 'Ошибка при получении услуг', details: String(e.message) })
-  }
+        const q = hasId.rowCount
+            ? 'select id, name, price, duration, clinic_id, category, section, specialty_id from public.services order by id'
+            : 'select id, name, price, duration, clinic_id, category, section, specialty_id from public.services'
+        const result = await pool.query(q)
+        res.json(result.rows)
+    } catch (e) {
+        console.error('Ошибка /services:', e)
+        res.status(500).json({ error: 'Ошибка при получении услуг', details: String(e.message) })
+    }
 })
 
 app.get('/api/availability', async (req, res) => {
