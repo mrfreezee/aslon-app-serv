@@ -76,7 +76,7 @@ app.get('/api/health', (_, res) => res.send('ok'))
 app.get('/api/user/:user_id', async (req, res) => {
     const { user_id } = req.params
     try {
-        const q = `SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date FROM client WHERE user_id=$1`
+        const q = `SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date FROM public.client WHERE user_id=$1`
         const r = await pool.query(q, [user_id])
         if (!r.rows.length) return res.status(404).json({ error: 'NOT_FOUND' })
         res.json(r.rows[0])
