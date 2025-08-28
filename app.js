@@ -16,7 +16,12 @@ app.use((req, res, next) => {
     next()
 })
 
-app.use(cors())
+app.use(cors({
+    origin: ['http://localhost:3005', 'http://127.0.0.1:3005'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+}));
 app.use(express.json())
 
 const pool = process.env.DATABASE_URL
@@ -46,6 +51,8 @@ function parseTimeRange(rangeStr) {
     const [l, r] = rangeStr.split('-').map(s => s.trim())
     return [minsFromHMS(l), minsFromHMS(r)]
 }
+
+
 
 app.get('/api/debug/db', async (req, res) => {
     try {
@@ -91,13 +98,13 @@ app.post('/api/user', async (req, res) => {
     try {
         const clientCode = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}`
         await pool.query(
-            `INSERT INTO client (user_id, full_name, birth_date, phone, reg_date, client_code, role)
+            `INSERT INTO public.client (user_id, full_name, birth_date, phone, reg_date, client_code, role)
        VALUES ($1,$2,$3,$4,NOW(),$5,'client')
        ON CONFLICT (user_id) DO NOTHING`,
             [user_id, full_name, birth_date, phone, clientCode]
         )
         const r = await pool.query(
-            `SELECT user_id, full_name, phone, birth_date, client_code, bonus_balance, role, reg_date FROM client WHERE user_id=$1`,
+            `SELECT user_id, full_name, phone, birth_date, client_code, bonus_balance, role, reg_date FROM public.client WHERE user_id=$1`,
             [user_id]
         )
         res.json(r.rows[0])
@@ -111,7 +118,7 @@ app.put('/api/user/:user_id', async (req, res) => {
     const { full_name, birth_date, phone } = req.body || {}
     try {
         await pool.query(
-            `UPDATE client SET full_name=$1, birth_date=$2, phone=$3 WHERE user_id=$4`,
+            `UPDATE public.client SET full_name=$1, birth_date=$2, phone=$3 WHERE user_id=$4`,
             [full_name, birth_date, phone, user_id]
         )
         res.json({ success: true })
@@ -205,79 +212,199 @@ app.get('/api/services', async (req, res) => {
 })
 
 app.get('/api/availability', async (req, res) => {
-    const { doctor_id, month, date_from, date_to } = req.query || {}
-    if (!doctor_id) return res.status(400).json({ error: 'doctor_id required' })
-    let from = date_from
-    let to = date_to
+    const { doctor_id, month, date_from, date_to } = req.query || {};
+    if (!doctor_id) return res.status(400).json({ error: 'doctor_id required' });
+
+    let from = date_from, to = date_to;
     if (month) {
-        const [Y, M] = month.split('-').map(Number)
-        const d0 = new Date(Y, (M - 1), 1)
-        const d1 = new Date(Y, (M - 1) + 1, 1)
-        from = from || `${d0.getFullYear()}-${pad2(d0.getMonth() + 1)}-01`
-        to = to || `${d1.getFullYear()}-${pad2(d1.getMonth() + 1)}-01`
+        const [Y, M] = String(month).split('-').map(Number);
+        const d0 = new Date(Y, M - 1, 1);
+        const d1 = new Date(Y, M, 1);
+        const pad2 = n => String(n).padStart(2, '0');
+        from = from || `${d0.getFullYear()}-${pad2(d0.getMonth() + 1)}-01`;
+        to = to || `${d1.getFullYear()}-${pad2(d1.getMonth() + 1)}-01`;
     }
-    if (!from || !to) return res.status(400).json({ error: 'period required (month or date_from/date_to)' })
+    if (!from || !to) return res.status(400).json({ error: 'period required (month or date_from/date_to)' });
+
     try {
         const identsQ = await pool.query(
-            `SELECT DISTINCT ident_staff_id::text AS ident FROM public.doctor_schedule WHERE doctor_id::text = $1`,
-            [doctor_id]
-        )
-        const identIds = identsQ.rows.map(r => r.ident)
-        if (!identIds.length) return res.json({ doctor_id, month, days: {} })
+            `SELECT DISTINCT ident_staff_id::text AS ident
+         FROM public.doctor_schedule
+        WHERE doctor_id::text = $1`,
+            [String(doctor_id)]
+        );
+        const identIds = identsQ.rows.map(r => r.ident);
+        if (!identIds.length) return res.json({ doctor_id, month, days: {} });
+
         const schedQ = await pool.query(
-            `SELECT date::date AS d, time, is_available
+            `SELECT to_char(date::date,'YYYY-MM-DD') AS iso, time, is_available
          FROM public.doctor_schedule
         WHERE ident_staff_id::text = ANY($1::text[])
           AND date >= $2::date AND date < $3::date
           AND is_available = true
         ORDER BY date ASC, time ASC`,
             [identIds, from, to]
-        )
+        );
+
+        const busyAptQ = await pool.query(
+            `SELECT to_char(date::date,'YYYY-MM-DD') AS iso, time AS t
+         FROM public.appointments
+        WHERE doctor_id = $1
+          AND date >= $2::date AND date < $3::date
+          AND COALESCE(status,'active') NOT IN ('cancelled','rejected')`,
+            [doctor_id, from, to]
+        );
+
         const busyQ = await pool.query(
-            `SELECT id_patients, id_staffs::text AS ident, planstart, planend
+            `SELECT to_char(planstart,'YYYY-MM-DD') AS iso,
+              planstart, planend
          FROM public.ident_receptions
         WHERE id_staffs::text = ANY($1::text[])
-          AND planstart::timestamp >= $2::timestamp
-          AND planstart::timestamp <  $3::timestamp`,
+          AND planstart >= $2::timestamp
+          AND planstart <  $3::timestamp`,
             [identIds, from, to]
-        )
-        const availabilityDay = new Map()
+        );
+
+        const mins = (h, m) => h * 60 + m;
+        const minsFromHMS = (s) => {
+            if (!s) return 0;
+            const [hh, mm] = String(s).split(':').map(Number);
+            return mins(hh || 0, mm || 0);
+        };
+        const timeFromMins = (m) =>
+            `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+        const availabilityDay = new Map();
+
         for (const row of schedQ.rows) {
-            const iso = row.d.toISOString().slice(0, 10)
-            const [startMin, endMin] = parseTimeRange(row.time)
-            if (endMin <= startMin) continue
-            if (!availabilityDay.has(iso)) availabilityDay.set(iso, new Set())
-            const s = availabilityDay.get(iso)
-            for (let m = startMin; m < endMin; m += 15) {
-                const q = Math.floor(m / 15)
-                if (q >= 0 && q < 96) s.add(q)
-            }
+            const [l, r] = String(row.time).split('-').map(s => s.trim());
+            const start = minsFromHMS(l), end = minsFromHMS(r);
+            if (end <= start) continue;
+            if (!availabilityDay.has(row.iso)) availabilityDay.set(row.iso, new Set());
+            const s = availabilityDay.get(row.iso);
+            for (let m = start; m < end; m += 15) s.add(Math.floor(m / 15));
         }
+
         for (const row of busyQ.rows) {
-            const start = new Date(row.planstart)
-            const end = new Date(row.planend)
-            const iso = start.toISOString().slice(0, 10)
-            if (!availabilityDay.has(iso)) continue
-            const s = availabilityDay.get(iso)
-            const startMin = start.getHours() * 60 + start.getMinutes()
-            const endMin = end.getHours() * 60 + end.getMinutes()
-            for (let m = startMin; m < endMin; m += 15) {
-                const q = Math.floor(m / 15)
-                s.delete(q)
-            }
+            const s = availabilityDay.get(row.iso);
+            if (!s) continue;
+            const st = row.planstart;
+            const en = row.planend;
+            const startMin = st.getHours() * 60 + st.getMinutes();
+            const endMin = en.getHours() * 60 + en.getMinutes();
+            for (let m = startMin; m < endMin; m += 15) s.delete(Math.floor(m / 15));
         }
-        const daysOut = {}
+
+        for (const row of busyAptQ.rows) {
+            const s = availabilityDay.get(row.iso);
+            if (!s) continue;
+            const [hh, mm] = String(row.t).split(':').map(Number);
+            const startMin = (hh || 0) * 60 + (mm || 0);
+            for (let m = startMin; m < startMin + 30; m += 15) s.delete(Math.floor(m / 15));
+        }
+
+        const daysOut = {};
         for (const [iso, setQ] of availabilityDay.entries()) {
-            const slots = []
-            for (let i = 0; i <= 94; i += 2) {
-                if (setQ.has(i) && setQ.has(i + 1)) slots.push(timeFromMins(i * 15))
+            const slots = [];
+            for (let q = 0; q <= 94; q += 2) {
+                if (setQ.has(q) && setQ.has(q + 1)) slots.push(timeFromMins(q * 15));
             }
-            if (slots.length) daysOut[iso] = slots
+            if (slots.length) daysOut[iso] = slots;
         }
-        res.json({ doctor_id, month: month || undefined, date_from: from, date_to: to, days: daysOut })
+
+        res.json({ doctor_id, month: month || undefined, date_from: from, date_to: to, days: daysOut });
     } catch (e) {
-        res.status(500).json({ error: 'SERVER_ERROR', details: e.message })
+        console.error('availability error:', e);
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
     }
-})
+});
+
+app.post('/api/appointments', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const {
+            user_id,
+            clinic_id = null,
+            doctor_id,
+            doctor_name,
+            services = [],        // [{ id, name, price }]
+            date,                 // 'YYYY-MM-DD'
+            time,                 // 'HH:mm'
+            status = 'active',    // делаем активным по умолчанию
+        } = req.body || {};
+
+        if (!user_id || !doctor_id || !date || !time || !Array.isArray(services) || !services.length) {
+            return res.status(400).json({ error: 'REQUIRED_FIELDS', details: 'user_id, doctor_id, date, time, services[]' });
+        }
+
+        await client.query('BEGIN');
+
+        // 1) защитимся от двойного бронирования
+        const clash = await client.query(
+            `SELECT 1
+         FROM public.appointments
+        WHERE doctor_id = $1
+          AND date = $2::date
+          AND time = $3::time
+          AND COALESCE(status,'active') NOT IN ('cancelled','rejected')
+        LIMIT 1`,
+            [doctor_id, date, time]
+        );
+        if (clash.rowCount) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'SLOT_TAKEN' });
+        }
+
+        // 2) вставляем по каждой услуге
+        const inserted = [];
+        for (const s of services) {
+            const r = await client.query(
+                `INSERT INTO public.appointments
+           (user_id, clinic_id, service_id, date, time, status, created_at,
+            doctor_name, service_name, service_price, doctor_id)
+         VALUES ($1,$2,$3,$4,$5,$6, NOW(),
+                 $7,$8,$9,$10)
+         RETURNING *`,
+                [
+                    user_id,
+                    clinic_id,
+                    s?.id ?? null,
+                    date,
+                    time,              // БД сама приведёт 'HH:mm' -> time
+                    status,
+                    doctor_name ?? null,
+                    s?.name ?? null,
+                    s?.price ?? null,
+                    doctor_id,
+                ]
+            );
+            inserted.push(r.rows[0]);
+        }
+
+        await client.query('COMMIT');
+        res.json({ ok: true, inserted });
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => { });
+        console.error('Ошибка /appointments:', e);
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.get('/api/appointments/:user_id', async (req, res) => {
+    try {
+        const r = await pool.query(
+            `SELECT *
+         FROM public.appointments
+        WHERE user_id = $1
+        ORDER BY date ASC, time ASC, id ASC`,
+            [req.params.user_id]
+        );
+        res.json(r.rows);
+    } catch (e) {
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
+    }
+});
 
 module.exports = app
