@@ -2,10 +2,13 @@ require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const { Pool } = require('pg')
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express()
 
-const allow = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
+// const allow = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
 app.use((req, res, next) => {
     const o = req.headers.origin
     if (!allow.length || (o && allow.includes(o))) res.setHeader('Access-Control-Allow-Origin', o || '*')
@@ -16,8 +19,20 @@ app.use((req, res, next) => {
     next()
 })
 
+const allow = [
+    'http://localhost:3005',
+    'http://127.0.0.1:3005',
+    'https://clinic-app-lilac.vercel.app', // сюда добавь прод-URL фронта
+];
+
 app.use(cors({
-    origin: ['http://localhost:3005', 'http://127.0.0.1:3005'],
+    origin: (origin, cb) => {
+        if (!origin || allow.includes(origin)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -83,7 +98,7 @@ app.get('/api/health', (_, res) => res.send('ok'))
 app.get('/api/user/:user_id', async (req, res) => {
     const { user_id } = req.params
     try {
-        const q = `SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date FROM public.client WHERE user_id=$1`
+        const q = `SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date, avatar_url  FROM public.client WHERE user_id=$1`
         const r = await pool.query(q, [user_id])
         if (!r.rows.length) return res.status(404).json({ error: 'NOT_FOUND' })
         res.json(r.rows[0])
@@ -104,7 +119,7 @@ app.post('/api/user', async (req, res) => {
             [user_id, full_name, birth_date, phone, clientCode]
         )
         const r = await pool.query(
-            `SELECT user_id, full_name, phone, birth_date, client_code, bonus_balance, role, reg_date FROM public.client WHERE user_id=$1`,
+            `SELECT user_id, full_name, phone, birth_date, client_code, bonus_balance, role, reg_date, avatar_url FROM public.client WHERE user_id=$1`,
             [user_id]
         )
         res.json(r.rows[0])
@@ -406,5 +421,35 @@ app.get('/api/appointments/:user_id', async (req, res) => {
         res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
     }
 });
+
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `avatar_${req.params.user_id}${ext}`);
+    }
+});
+const upload = multer({ storage });
+
+app.post('/api/user/:user_id/avatar', upload.single('avatar'), async (req, res) => {
+    const { user_id } = req.params;
+    const fileUrl = `/uploads/${req.file.filename}`;
+
+    try {
+        await pool.query(
+            `UPDATE public.client SET avatar_url=$1 WHERE user_id=$2`,
+            [fileUrl, user_id]
+        );
+        res.json({ success: true, avatar_url: fileUrl });
+    } catch (e) {
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
+    }
+});
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 
 module.exports = app
