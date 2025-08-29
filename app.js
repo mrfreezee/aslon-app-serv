@@ -422,17 +422,17 @@ app.get('/api/appointments/:user_id', async (req, res) => {
     }
 });
 
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+// const uploadDir = path.join(__dirname, 'uploads');
+// if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `avatar_${req.params.user_id}${ext}`);
-    }
-});
-const upload = multer({ storage });
+// const storage = multer.diskStorage({
+//     destination: (req, file, cb) => cb(null, uploadDir),
+//     filename: (req, file, cb) => {
+//         const ext = path.extname(file.originalname);
+//         cb(null, `avatar_${req.params.user_id}${ext}`);
+//     }
+// });
+// const upload = multer({ storage });
 
 app.post('/api/user/:user_id/avatar', async (req, res) => {
     const { user_id } = req.params;
@@ -453,7 +453,7 @@ app.post('/api/user/:user_id/avatar', async (req, res) => {
     }
 });
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 
 module.exports = app
