@@ -434,16 +434,20 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-app.post('/api/user/:user_id/avatar', upload.single('avatar'), async (req, res) => {
+app.post('/api/user/:user_id/avatar', async (req, res) => {
     const { user_id } = req.params;
-    const fileUrl = `/uploads/${req.file.filename}`;
+    const { avatar_url } = req.body;
+
+    if (!avatar_url) {
+        return res.status(400).json({ error: 'NO_URL' });
+    }
 
     try {
         await pool.query(
             `UPDATE public.client SET avatar_url=$1 WHERE user_id=$2`,
-            [fileUrl, user_id]
+            [avatar_url, user_id]
         );
-        res.json({ success: true, avatar_url: fileUrl });
+        res.json({ success: true, avatar_url });
     } catch (e) {
         res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
     }
