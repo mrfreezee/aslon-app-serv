@@ -342,10 +342,11 @@ app.post('/api/appointments', async (req, res) => {
             clinic_id = null,
             doctor_id,
             doctor_name,
-            services = [],        // [{ id, name, price }]
-            date,                 // 'YYYY-MM-DD'
-            time,                 // 'HH:mm'
-            status = 'active',    // делаем активным по умолчанию
+            services = [],
+            date,
+            time,
+            status = 'active',
+            specialty_name  
         } = req.body || {};
 
         if (!user_id || !doctor_id || !date || !time || !Array.isArray(services) || !services.length) {
@@ -375,22 +376,23 @@ app.post('/api/appointments', async (req, res) => {
         for (const s of services) {
             const r = await client.query(
                 `INSERT INTO public.appointments
-           (user_id, clinic_id, service_id, date, time, status, created_at,
-            doctor_name, service_name, service_price, doctor_id)
-         VALUES ($1,$2,$3,$4,$5,$6, NOW(),
-                 $7,$8,$9,$10)
-         RETURNING *`,
+   (user_id, clinic_id, service_id, date, time, status, created_at,
+    doctor_name, service_name, service_price, doctor_id, specialty_name)
+   VALUES ($1,$2,$3,$4,$5,$6, NOW(),
+           $7,$8,$9,$10,$11)
+   RETURNING *`,
                 [
                     user_id,
                     clinic_id,
                     s?.id ?? null,
                     date,
-                    time,              // БД сама приведёт 'HH:mm' -> time
+                    time,
                     status,
                     doctor_name ?? null,
                     s?.name ?? null,
                     s?.price ?? null,
                     doctor_id,
+                    specialty_name
                 ]
             );
             inserted.push(r.rows[0]);
@@ -422,17 +424,6 @@ app.get('/api/appointments/:user_id', async (req, res) => {
     }
 });
 
-// const uploadDir = path.join(__dirname, 'uploads');
-// if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-
-// const storage = multer.diskStorage({
-//     destination: (req, file, cb) => cb(null, uploadDir),
-//     filename: (req, file, cb) => {
-//         const ext = path.extname(file.originalname);
-//         cb(null, `avatar_${req.params.user_id}${ext}`);
-//     }
-// });
-// const upload = multer({ storage });
 
 app.post('/api/user/:user_id/avatar', async (req, res) => {
     const { user_id } = req.params;
