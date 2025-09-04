@@ -1,7 +1,7 @@
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
-const { Pool } = require('pg')
+const { Pool, types  } = require('pg')
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -38,6 +38,9 @@ app.use(cors({
     credentials: true,
 }));
 app.use(express.json())
+
+types.setTypeParser(1082, val => val);
+types.setTypeParser(1083, val => val);
 
 const pool = process.env.DATABASE_URL
     ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
@@ -412,9 +415,10 @@ app.post('/api/appointments', async (req, res) => {
 app.get('/api/appointments/:user_id', async (req, res) => {
     try {
         const r = await pool.query(
-            `SELECT *
-         FROM public.appointments
-        WHERE user_id = $1
+            `SELECT id, doctor_id, doctor_name, service_id, service_name, service_price,
+       date, time, specialty_name, status
+FROM public.appointments
+WHERE user_id=$1
         ORDER BY date ASC, time ASC, id ASC`,
             [req.params.user_id]
         );
@@ -424,6 +428,37 @@ app.get('/api/appointments/:user_id', async (req, res) => {
     }
 });
 
+app.put('/api/appointments/:id', async (req, res) => {
+    const { id } = req.params;
+    const {
+        doctor_id,
+        doctor_name,
+        service_id,
+        service_name,
+        service_price,
+        date,
+        time,
+        specialty_name,
+        
+    } = req.body || {};
+
+    try {
+        const r = await pool.query(
+            `UPDATE public.appointments
+             SET doctor_id=$1, doctor_name=$2,
+                 service_id=$3, service_name=$4, service_price=$5,
+                 date=$6::date, time=$7, specialty_name=$8
+             WHERE id=$9
+             RETURNING *`,
+            [doctor_id, doctor_name, service_id, service_name, service_price,
+             date, time, specialty_name, id]
+        );
+        res.json({ ok: true, updated: r.rows[0] });
+    } catch (e) {
+        console.error('Ошибка /appointments PUT:', e);
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
+    }
+});
 
 app.post('/api/user/:user_id/avatar', async (req, res) => {
     const { user_id } = req.params;
