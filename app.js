@@ -8,7 +8,6 @@ const fs = require('fs');
 
 const app = express()
 
-// const allow = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
 app.use((req, res, next) => {
     const o = req.headers.origin
     if (!allow.length || (o && allow.includes(o))) res.setHeader('Access-Control-Allow-Origin', o || '*')
@@ -22,7 +21,7 @@ app.use((req, res, next) => {
 const allow = [
     'http://localhost:3005',
     'http://127.0.0.1:3005',
-    'https://salon-app-red.vercel.app/', // сюда добавь прод-URL фронта
+    'https://salon-app-red.vercel.app', 
 ];
 
 app.use(cors({
