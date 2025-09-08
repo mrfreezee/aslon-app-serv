@@ -1,7 +1,7 @@
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
-const { Pool, types  } = require('pg')
+const { Pool, types } = require('pg')
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 const allow = [
     'http://localhost:3005',
     'http://127.0.0.1:3005',
-    'https://clinic-app-lilac.vercel.app', // сюда добавь прод-URL фронта
+    'https://salon-app-red.vercel.app/', // сюда добавь прод-URL фронта
 ];
 
 app.use(cors({
@@ -212,22 +212,25 @@ app.get('/api/doctor-services', async (req, res) => {
 
 app.get('/api/services', async (req, res) => {
     try {
-        const hasId = await pool.query(`
-      select 1
-      from information_schema.columns
-      where table_schema = 'public' and table_name = 'services' and column_name = 'id'
-      limit 1
-    `)
-        const q = hasId.rowCount
-            ? 'select id, name, price, duration, clinic_id, category, section, specialty_id from public.services order by id'
-            : 'select id, name, price, duration, clinic_id, category, section, specialty_id from public.services'
-        const result = await pool.query(q)
-        res.json(result.rows)
+        const { specialty_id } = req.query;
+
+        const baseQuery =
+            'select id, name, price, duration, specialty_id from public.services';
+        const q = specialty_id
+            ? `${baseQuery} where specialty_id=$1 order by id`
+            : `${baseQuery} order by id`;
+
+        const result = specialty_id
+            ? await pool.query(q, [specialty_id])
+            : await pool.query(q);
+
+        res.json(result.rows);
     } catch (e) {
-        console.error('Ошибка /services:', e)
-        res.status(500).json({ error: 'Ошибка при получении услуг', details: String(e.message) })
+        console.error('Ошибка /services:', e);
+        res.status(500).json({ error: 'Ошибка при получении услуг', details: String(e.message) });
     }
-})
+});
+
 
 app.get('/api/availability', async (req, res) => {
     const { doctor_id, month, date_from, date_to } = req.query || {};
@@ -342,14 +345,13 @@ app.post('/api/appointments', async (req, res) => {
     try {
         const {
             user_id,
-            clinic_id = null,
             doctor_id,
             doctor_name,
             services = [],
             date,
             time,
             status = 'active',
-            specialty_name  
+            specialty_name
         } = req.body || {};
 
         if (!user_id || !doctor_id || !date || !time || !Array.isArray(services) || !services.length) {
@@ -379,14 +381,13 @@ app.post('/api/appointments', async (req, res) => {
         for (const s of services) {
             const r = await client.query(
                 `INSERT INTO public.appointments
-   (user_id, clinic_id, service_id, date, time, status, created_at,
+   (user_id, service_id, date, time, status, created_at,
     doctor_name, service_name, service_price, doctor_id, specialty_name)
-   VALUES ($1,$2,$3,$4,$5,$6, NOW(),
-           $7,$8,$9,$10,$11)
+   VALUES ($1,$2,$3,$4,$5, NOW(),
+           $6,$7,$8,$9,$10)
    RETURNING *`,
                 [
                     user_id,
-                    clinic_id,
                     s?.id ?? null,
                     date,
                     time,
@@ -439,7 +440,7 @@ app.put('/api/appointments/:id', async (req, res) => {
         date,
         time,
         specialty_name,
-        
+
     } = req.body || {};
 
     try {
@@ -451,7 +452,7 @@ app.put('/api/appointments/:id', async (req, res) => {
              WHERE id=$9
              RETURNING *`,
             [doctor_id, doctor_name, service_id, service_name, service_price,
-             date, time, specialty_name, id]
+                date, time, specialty_name, id]
         );
         res.json({ ok: true, updated: r.rows[0] });
     } catch (e) {
@@ -459,6 +460,24 @@ app.put('/api/appointments/:id', async (req, res) => {
         res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
     }
 });
+
+app.delete('/api/appointments/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const r = await pool.query(
+            `DELETE FROM public.appointments WHERE id=$1 RETURNING *`,
+            [id]
+        );
+        if (!r.rows.length) {
+            return res.status(404).json({ error: 'NOT_FOUND' });
+        }
+        res.json({ ok: true, deleted: r.rows[0] });
+    } catch (e) {
+        console.error('Ошибка /appointments DELETE:', e);
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
+    }
+});
+
 
 app.post('/api/user/:user_id/avatar', async (req, res) => {
     const { user_id } = req.params;
