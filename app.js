@@ -109,6 +109,8 @@ app.get('/api/user/:user_id', async (req, res) => {
 
     if (!r.rows.length) {
       const clientCode = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}`;
+
+      // создаём клиента
       await pool.query(
         `INSERT INTO public.client (user_id, full_name, reg_date, client_code, role)
          VALUES ($1, $2, NOW(), $3, 'client')
@@ -116,11 +118,21 @@ app.get('/api/user/:user_id', async (req, res) => {
         [user_id, 'Новый пользователь', clientCode]
       );
 
+      // создаём запись в users
+      await pool.query(
+        `INSERT INTO public.users (user_id, role, created_at)
+         VALUES ($1, 'client', NOW())
+         ON CONFLICT (user_id) DO NOTHING`,
+        [user_id]
+      );
+
+      // перечитываем профиль
       r = await pool.query(q, [user_id]);
     }
 
     res.json(r.rows[0]);
   } catch (e) {
+    console.error('Ошибка /api/user/:user_id', e);
     res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
   }
 });
