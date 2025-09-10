@@ -98,16 +98,33 @@ app.get('/api/debug/columns/services', async (req, res) => {
 app.get('/api/health', (_, res) => res.send('ok'))
 
 app.get('/api/user/:user_id', async (req, res) => {
-    const { user_id } = req.params
-    try {
-        const q = `SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date, avatar_url  FROM public.client WHERE user_id=$1`
-        const r = await pool.query(q, [user_id])
-        if (!r.rows.length) return res.status(404).json({ error: 'NOT_FOUND' })
-        res.json(r.rows[0])
-    } catch (e) {
-        res.status(500).json({ error: 'SERVER_ERROR', details: e.message })
+  const { user_id } = req.params;
+  try {
+    const q = `
+      SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date, avatar_url
+      FROM public.client
+      WHERE user_id=$1
+    `;
+    let r = await pool.query(q, [user_id]);
+
+    if (!r.rows.length) {
+      const clientCode = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}`;
+      await pool.query(
+        `INSERT INTO public.client (user_id, full_name, reg_date, client_code, role)
+         VALUES ($1, $2, NOW(), $3, 'client')
+         ON CONFLICT (user_id) DO NOTHING`,
+        [user_id, 'Новый пользователь', clientCode]
+      );
+
+      r = await pool.query(q, [user_id]);
     }
-})
+
+    res.json(r.rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
+  }
+});
+
 
 app.post('/api/user', async (req, res) => {
     const { user_id, full_name = 'Новый пользователь', birth_date = '', phone = '' } = req.body || {}
