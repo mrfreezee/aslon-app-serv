@@ -21,7 +21,7 @@ app.use((req, res, next) => {
 const allow = [
     'http://localhost:3005',
     'http://127.0.0.1:3005',
-    'https://salon-app-red.vercel.app', 
+    'https://salon-app-red.vercel.app',
 ];
 
 app.use(cors({
@@ -98,43 +98,43 @@ app.get('/api/debug/columns/services', async (req, res) => {
 app.get('/api/health', (_, res) => res.send('ok'))
 
 app.get('/api/user/:user_id', async (req, res) => {
-  const { user_id } = req.params;
-  try {
-    const q = `
+    const { user_id } = req.params;
+    try {
+        const q = `
       SELECT user_id, full_name, phone, birth_date, client_code, ref_code, bonus_balance, role, reg_date, avatar_url
       FROM public.client
       WHERE user_id=$1
     `;
-    let r = await pool.query(q, [user_id]);
+        let r = await pool.query(q, [user_id]);
 
-    if (!r.rows.length) {
-      const clientCode = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}`;
+        if (!r.rows.length) {
+            const clientCode = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}`;
 
-      // создаём клиента
-      await pool.query(
-        `INSERT INTO public.client (user_id, full_name, reg_date, client_code, role)
+            // создаём клиента
+            await pool.query(
+                `INSERT INTO public.client (user_id, full_name, reg_date, client_code, role)
          VALUES ($1, $2, NOW(), $3, 'client')
          ON CONFLICT (user_id) DO NOTHING`,
-        [user_id, 'Новый пользователь', clientCode]
-      );
+                [user_id, 'Новый пользователь', clientCode]
+            );
 
-      // создаём запись в users
-      await pool.query(
-        `INSERT INTO public.users (user_id, role, created_at)
-         VALUES ($1, 'client', NOW())
-         ON CONFLICT (user_id) DO NOTHING`,
-        [user_id]
-      );
+            // создаём запись в users
+            await pool.query(
+                `INSERT INTO public.users (user_id, full_name, phone, reg_date, role, client_code)
+   VALUES ($1, $2, $3, NOW()::text, 'client', $4)
+   ON CONFLICT (user_id) DO NOTHING`,
+                [user_id, 'Новый пользователь', '', clientCode]
+            );
 
-      // перечитываем профиль
-      r = await pool.query(q, [user_id]);
+            // перечитываем профиль
+            r = await pool.query(q, [user_id]);
+        }
+
+        res.json(r.rows[0]);
+    } catch (e) {
+        console.error('Ошибка /api/user/:user_id', e);
+        res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
     }
-
-    res.json(r.rows[0]);
-  } catch (e) {
-    console.error('Ошибка /api/user/:user_id', e);
-    res.status(500).json({ error: 'SERVER_ERROR', details: e.message });
-  }
 });
 
 
